@@ -1,0 +1,10 @@
+{"name":"Qwen2.5-7B-Instruct-1M", "model": "Qwen/Qwen2.5-7B-Instruct-1M", "base_url": "http://127.0.0.1:8000/v1", "api_key": "GraphPKU", "max_len": 1000000}
+{"name":"Llama-3.1-8B-Instruct", "model": "meta-llama/Llama-3.1-8B-Instruct", "base_url": "http://127.0.0.1:8000/v1", "api_key": "GraphPKU", "max_len": 128000}
+{"name":"Mistral-7B-Instruct-v0.2", "model": "mistralai/Mistral-7B-Instruct-v0.2", "base_url": "http://127.0.0.1:8000/v1", "api_key": "GraphPKU", "max_len": 32000}
+{"name":"GLM-4-9b-chat", "model": "THUDM/glm-4-9b-chat", "base_url": "http://127.0.0.1:8000/v1", "api_key": "GraphPKU", "max_len": 128000}
+{"name":"Phi-3-medium-128k-instruct", "model": "microsoft/Phi-3-medium-128k-instruct", "base_url": "http://127.0.0.1:8000/v1", "api_key": "GraphPKU", "max_len": 128000}
+{"name":"Yarn-Mistral-7b-128k", "model": "NousResearch/Yarn-Mistral-7b-128k", "base_url": "http://127.0.0.1:8000/v1", "api_key": "GraphPKU", "max_len": 128000}
+{"name":"DeepSeek-V3", "model": "deepseek-ai/DeepSeek-V3", "base_url": "https://api.deepseek.com", "api_key": "<YOUR_API_KEY>", "max_len": 64000}
+{"name":"DeepSeek-R1", "model": "deepseek-ai/DeepSeek-R1", "base_url": "https://api.deepseek.com", "api_key": "<YOUR_API_KEY>", "max_len": 64000}
+{"name":"GPT-4.1", "model": "gpt-4.1", "base_url": "https://api.openai.com/v1", "api_key": "<YOUR_API_KEY>", "max_len": 1000000}
+{"name":"GPT-o3-mini", "model": "o3-mini", "base_url": "https://api.openai.com/v1", "api_key": "<YOUR_API_KEY>", ",max_len": 200000}
