@@ -29,26 +29,25 @@ def truncate(model, prompt, tokenizer, max_len):
             prompt = tokenizer.decode(input_ids, skip_special_tokens=True)
     return prompt
 
-
-def format_prompt(model, data, tokenizer, max_len, with_context):
-    if with_context == False:
-        data["context"] = "I would not provide you with the context. Please choose the most likely option based on your knowledge and intuition."
-    prompt = data["instruction"].format(context=data["context"], options=data["options"], question=data["question"])
-    
-    # prompt += "Give the answer only. Do not include any explanation or reasoning."
-    prompt = truncate(model, prompt, tokenizer, max_len)
-    return prompt
-
+def format_prompt(model, data, tokenizer, max_len, cot):
+    if cot == True:
+        prompt = data["instruction"].format(context=data["context"], options=data["options"], question=data["question"]) + "Let's think step by step:"
+        prompt = truncate(model, prompt, tokenizer, max_len - 1024)
+        return prompt
+    else:
+        prompt = data["instruction"].format(context=data["context"], options=data["options"], question=data["question"]) + data["cot"] + data["form"]
+        prompt = truncate(model, prompt, tokenizer, max_len)
+        return prompt
 
 def multiple_choice_answer(response):
     response = response.replace('*', '')
-    match = re.search(r"The correct answer is .*([A-D])\.\s*[\w\s]+", response)
-    if match:
-        return match.group(1)  
     match = re.search(r'The correct answer is \(([A-D])', response)
     if match:
         return match.group(1)
     match = re.search(r'The correct answer is ([A-D])', response)
+    if match:
+        return match.group(1)
+    match = re.search(r'The correct answer is \'([A-D])', response)
     if match:
         return match.group(1)
     match = re.search(r'The correct answer is: \(([A-D])', response)
@@ -57,10 +56,11 @@ def multiple_choice_answer(response):
     match = re.search(r'The correct answer is: ([A-D])', response)
     if match:
         return match.group(1)
+    match = re.search(r'The correct answer is: \'([A-D])', response)
+    if match:
+        return match.group(1)
     else:
         return None
-
-
 
 def extract_case_answer(response):
     response = response.replace('*', '')
@@ -82,9 +82,13 @@ def extract_case_answer(response):
     match = re.search(r'The correct answer is:\s*<CASE_\d+', response)
     if match:
         return re.search(r'CASE_\d+', match.group(0)).group(0)
+    match = re.search(r'The correct answer is\s*\'CASE_\d+', response)
+    if match:
+        return re.search(r'CASE_\d+', match.group(0)).group(0)
+    match = re.search(r'The correct answer is:\s*\'CASE_\d+', response)
+    if match:
+        return re.search(r'CASE_\d+', match.group(0)).group(0)
     return None
-
-
 
 def extract_law_answer(response):
     response = response.replace('*', '')
@@ -117,7 +121,6 @@ def extract_qa_answer_trend_analysis(response):
     answer_text = pattern.findall(answer_text)
     return answer_text
 
-
 def extract_qa_answer(response):
     match = re.search(r"[Tt]he correct answer is+(.*)", response)
     if not match:
@@ -130,7 +133,6 @@ def extract_qa_answer(response):
 def extract_version_control_answer(response):
     matches = re.findall(r'[\w/]+\.py', response)
     return list(set(matches))
-
 
 def compute_jaccard_score(list1, list2):
 
@@ -158,7 +160,6 @@ def normalize_number(s):
     except ValueError:
         return None
 
-
 def load_model_config(config_path, target_model_name):
     with open(config_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -172,12 +173,8 @@ def load_model_config(config_path, target_model_name):
                 }
     raise ValueError(f"Model name '{target_model_name}' not found in {config_path}")
 
-def query_llm(data, model, max_len, tokenizer, client, with_context, temperature=0.1, max_new_tokens=32, stop=None):
-    # truncate
-    prompt = format_prompt(model, data, tokenizer, max_len, with_context)
-        # Debug: log the last 1000 chars of context
-    with open("context_debug.log", "a", encoding="utf-8") as logf:
-        logf.write(f"{data.get('id', 'unknown_id')}\t{prompt[-1000:]}\n")
+def query_llm(data, model, max_len, tokenizer, client, cot, temperature=0.1, max_new_tokens=32, stop=None):
+    prompt = format_prompt(model, data, tokenizer, max_len, cot)
     tries = 0
     while tries < 5:
         tries += 1
@@ -255,10 +252,20 @@ def get_pred(dataset, args, fout):
         api_key=API_KEY
     )
     for data in tqdm(dataset):
-        output = query_llm(data, model, max_len, tokenizer, client, args.with_context, temperature=0.1, max_new_tokens=args.max_new_tokens)
+        output = query_llm(data, model, max_len, tokenizer, client, True, temperature=0.1, max_new_tokens=1024)
+        if output == '':
+            response = ''
+        else:
+            response = output.strip()
+
+        cot = f"You can analysis this question based on the following clues: {response}."
+        data["cot"] = cot
+        output = query_llm(data, model, max_len, tokenizer, client, False, temperature=0.1,
+                               max_new_tokens=512)
         if output == '':
             continue
         response = output.strip()
+
         item = OrderedDict()
         item['id'] = data['id']
         item['source'] = data['source']
@@ -313,42 +320,33 @@ def get_pred(dataset, args, fout):
         fout.write(json.dumps(item, ensure_ascii=False) + '\n')
         fout.flush()
 
-
-def load_data(source, split='test'):
+def load_data(source, split='train'):
     if source.endswith('.jsonl'):
         with open(source, 'r', encoding='utf-8') as f:
             dataset = [json.loads(line) for line in f]
     else:
         dataset = load_dataset(source, split=split)
-    data_all = []
-    for item in dataset:
-        options = item['options']
-        if isinstance(options,list):
-            options = "\n".join(options)
-        data_all.append({
-            "id": item["id"],
-            "source": item["source"],
-            "task": item["task"],
-            "type": item["type"],
-            "instruction": item["instruction"],
-            "context": item["context"],
-            "question": item["question"],
-            "options": options,
-            "answer": item["answer"]
-        })
-    print(f"Loaded {len(data_all)} items from {source}.")
+
+    data_all = [{
+        "id": item["id"],
+        "source": item["source"],
+        "task": item["task"],
+        "type": item["type"],
+        "instruction": item["instruction"],
+        "context": item["context"],
+        "question": item["question"],
+        "options": "\n".join(item["options"]),
+        "answer": item["answer"],
+        "form": item["form"]
+    } for item in dataset]
+
     return data_all
-
-
 
 def main():
     os.makedirs(args.save_dir, exist_ok=True)
     print(args)
 
-    if args.with_context == 0:
-        out_file = os.path.join(args.save_dir, f"{args.model}_no_context.jsonl")
-    else:
-        out_file = os.path.join(args.save_dir, f"{args.model}.jsonl")
+    out_file = os.path.join(args.save_dir, f"{args.model}.jsonl")
 
     data_list = load_data(args.data_dir)
 
@@ -374,11 +372,9 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--save_dir", "-s", type=str, default="results")
+    parser.add_argument("--save_dir", "-s", type=str, default="results_rag_1")
     parser.add_argument("--model", "-m", type=str, default="Llama-3.1-8B-Instruct")
-    parser.add_argument("--with_context", "-c", type=bool, default=True)
     parser.add_argument("--n_proc", "-n", type=int, default=4)
-    parser.add_argument("--data_dir", "-d", type=str, default="datasets/code_merged.jsonl")
-    parser.add_argument("--max_new_tokens", type=int, default=512, help="max new tokens for model output")
+    parser.add_argument("--data_dir", "-d", type=str, default="datasets/test.jsonl")
     args = parser.parse_args()
     main()
